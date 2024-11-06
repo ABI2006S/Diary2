@@ -27,3 +27,14 @@
         transform: translateY(0);
     }
 }
+.cursor-wait {
+    cursor: wait;
+}
+
+#loading-indicator {
+    display: none;
+}
+
+body.loading #loading-indicator {
+    display: flex;
+}
