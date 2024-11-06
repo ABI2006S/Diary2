@@ -25,44 +25,60 @@ document.addEventListener('DOMContentLoaded', function() {
         signaturePad = new SignaturePad(canvas);
     }
 
-    writeButton.addEventListener('click', function() {
-        passwordProtection.classList.add('hidden');
-        writePassword.classList.remove('hidden');
-    });
+    function showLoading() {
+        document.body.classList.add('loading');
+    }
 
-    readButton.addEventListener('click', function() {
-        passwordProtection.classList.add('hidden');
-        readPassword.classList.remove('hidden');
-    });
+    function hideLoading() {
+        document.body.classList.remove('loading');
+    }
+
+    writeButton.addEventListener('click', () => setView('writePassword'));
+    readButton.addEventListener('click', () => setView('readPassword'));
 
     submitWritePassword.addEventListener('click', async function() {
+        showLoading();
         const password = writePasswordInput.value;
-        const isCorrect = await verifyPassword(password, 'write');
-        if (isCorrect) {
-            writePassword.classList.add('hidden');
-            autographForm.classList.remove('hidden');
-            writePasswordError.classList.add('hidden');
-            initSignaturePad();
-        } else {
-            writePasswordError.classList.remove('hidden');
+        try {
+            const isCorrect = await verifyPassword(password, 'write');
+            if (isCorrect) {
+                setView('write');
+                writePasswordError.classList.add('hidden');
+                initSignaturePad();
+            } else {
+                writePasswordError.classList.remove('hidden');
+            }
+        } catch (error) {
+            console.error('Error verifying password:', error);
+            alert('An error occurred. Please try again.');
+        } finally {
+            hideLoading();
         }
     });
 
     submitReadPassword.addEventListener('click', async function() {
+        showLoading();
         const password = readPasswordInput.value;
-        const isCorrect = await verifyPassword(password, 'read');
-        if (isCorrect) {
-            readPassword.classList.add('hidden');
-            autographDisplay.classList.remove('hidden');
-            readPasswordError.classList.add('hidden');
-            await loadEntries(password);
-        } else {
-            readPasswordError.classList.remove('hidden');
+        try {
+            const isCorrect = await verifyPassword(password, 'read');
+            if (isCorrect) {
+                setView('read');
+                readPasswordError.classList.add('hidden');
+                await loadEntries(password);
+            } else {
+                readPasswordError.classList.remove('hidden');
+            }
+        } catch (error) {
+            console.error('Error verifying password:', error);
+            alert('An error occurred. Please try again.');
+        } finally {
+            hideLoading();
         }
     });
 
     entryForm.addEventListener('submit', async function(e) {
         e.preventDefault();
+        showLoading();
         const name = nameInput.value;
         const message = messageInput.value;
         const signature = signaturePad.toDataURL();
@@ -75,16 +91,22 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         const password = writePasswordInput.value;
-        const success = await saveEntry(password, entry);
-
-        if (success) {
-            alert('Autograph saved successfully!');
-            nameInput.value = '';
-            messageInput.value = '';
-            signaturePad.clear();
-            setView('home');
-        } else {
-            alert('Failed to save autograph. Please try again.');
+        try {
+            const success = await saveEntry(password, entry);
+            if (success) {
+                alert('Autograph saved successfully!');
+                nameInput.value = '';
+                messageInput.value = '';
+                signaturePad.clear();
+                setView('home');
+            } else {
+                alert('Failed to save autograph. Please try again.');
+            }
+        } catch (error) {
+            console.error('Error saving entry:', error);
+            alert('An error occurred. Please try again.');
+        } finally {
+            hideLoading();
         }
     });
 
@@ -95,47 +117,49 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     async function verifyPassword(password, type) {
-        try {
-            const response = await fetch('/api/verify-password', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ password, type }),
-            });
-            const data = await response.json();
-            return data.isCorrect;
-        } catch (error) {
-            console.error('Error verifying password:', error);
-            return false;
+        const response = await fetch('/api/verify-password', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ password, type }),
+        });
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
         }
+        const data = await response.json();
+        return data.isCorrect;
     }
 
     async function saveEntry(password, entry) {
-        try {
-            const response = await fetch('/api/entries', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ password, entry }),
-            });
-            const data = await response.json();
-            return data.success;
-        } catch (error) {
-            console.error('Error saving entry:', error);
-            return false;
+        const response = await fetch('/api/entries', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ password, entry }),
+        });
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
         }
+        const data = await response.json();
+        return data.success;
     }
 
     async function loadEntries(password) {
+        showLoading();
         try {
             const response = await fetch(`/api/entries?password=${encodeURIComponent(password)}`);
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
             const entries = await response.json();
             displayEntries(entries);
         } catch (error) {
             console.error('Error loading entries:', error);
             alert('Failed to load entries. Please try again.');
+        } finally {
+            hideLoading();
         }
     }
 
@@ -145,10 +169,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const entryDiv = document.createElement('div');
             entryDiv.className = 'autograph-card bg-white p-4 rounded-lg shadow';
             entryDiv.innerHTML = `
-                <h3 class="text-xl font-bold">${entry.name}</h3>
-                <p class="mt-2">${entry.message}</p>
-                <img src="${entry.signature}" alt="${entry.name}'s signature" class="mt-2 max-w-full h-auto">
-                <p class="text-sm text-gray-500 mt-2">Signed on: ${entry.date}</p>
+                <h3 class="text-xl font-bold">${escapeHtml(entry.name)}</h3>
+                <p class="mt-2">${escapeHtml(entry.message)}</p>
+                <img src="${entry.signature}" alt="${escapeHtml(entry.name)}'s signature" class="mt-2 max-w-full h-auto">
+                <p class="text-sm text-gray-500 mt-2">Signed on: ${escapeHtml(entry.date)}</p>
             `;
             entriesContainer.appendChild(entryDiv);
         });
@@ -165,6 +189,12 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'home':
                 passwordProtection.classList.remove('hidden');
                 break;
+            case 'writePassword':
+                writePassword.classList.remove('hidden');
+                break;
+            case 'readPassword':
+                readPassword.classList.remove('hidden');
+                break;
             case 'write':
                 autographForm.classList.remove('hidden');
                 break;
@@ -172,6 +202,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 autographDisplay.classList.remove('hidden');
                 break;
         }
+    }
+
+    function escapeHtml(unsafe) {
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 
     // Initialize the view
