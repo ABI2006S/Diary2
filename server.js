@@ -11,34 +11,37 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// MongoDB connection with connection test and pool exhaustion handling
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  poolSize: 10
-})
-.then(() => {
-  console.log('MongoDB connected successfully');
-  
-  // Connection test
-  mongoose.connection.db.admin().ping((error, result) => {
-    if (error) {
-      console.error('MongoDB connection test failed:', error);
-    } else {
-      console.log('MongoDB connection test successful:', result);
-    }
+// MongoDB connection with connection test, pool exhaustion handling, and retry logic
+const connectWithRetry = () => {
+  mongoose.connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+  })
+  .then(() => {
+    console.log('MongoDB connected successfully');
+    
+    // Connection test
+    mongoose.connection.db.admin().ping((error, result) => {
+      if (error) {
+        console.error('MongoDB connection test failed:', error);
+      } else {
+        console.log('MongoDB connection test successful:', result);
+      }
+    });
+  })
+  .catch(err => {
+    console.error('MongoDB connection error:', err);
+    setTimeout(connectWithRetry, 5000);
   });
-})
-.catch(err => {
-  console.error('MongoDB connection error:', err);
-});
+};
+
+connectWithRetry();
 
 mongoose.connection.on('disconnected', () => {
   console.log('MongoDB disconnected');
-});
-
-mongoose.connection.on('reconnected', () => {
-  console.log('MongoDB reconnected');
+  connectWithRetry();
 });
 
 const EntrySchema = new mongoose.Schema({
@@ -80,7 +83,7 @@ app.get('/api/entries', async (req, res) => {
   
   if (password === process.env.READ_PASSWORD) {
     try {
-      const entries = await Entry.find();
+      const entries = await Entry.find().lean().exec();
       res.json(entries);
     } catch (error) {
       console.error('Error reading entries:', error);
