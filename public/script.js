@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const messageInput = document.getElementById('message-input');
     const clearSignatureButton = document.getElementById('clear-signature');
     const entriesContainer = document.getElementById('entries-container');
+    const loadingIndicator = document.getElementById('loading-indicator');
 
     let signaturePad;
 
@@ -26,11 +27,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function showLoading() {
-        document.body.classList.add('loading');
+        loadingIndicator.classList.remove('hidden');
     }
 
     function hideLoading() {
-        document.body.classList.remove('loading');
+        loadingIndicator.classList.add('hidden');
     }
 
     writeButton.addEventListener('click', () => setView('writePassword'));
