@@ -100,43 +100,35 @@ document.addEventListener('DOMContentLoaded', async function() {
         setView('readPassword');
     });
 
-    // Password verification with retry mechanism
+    // Updated password verification function
     async function verifyPassword(password, type) {
-        setLoading(true);
-        let attempts = 0;
+        try {
+            const response = await fetch('/api/verify-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ password, type }),
+            });
 
-        while (attempts < state.maxRetries) {
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), state.timeoutDuration);
-
-                const response = await fetch('/api/verify-password', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password, type }),
-                    signal: controller.signal
-                });
-
-                clearTimeout(timeoutId);
-
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                const data = await response.json();
-                setLoading(false);
-                return data.isCorrect;
-
-            } catch (error) {
-                attempts++;
-                console.error(`Attempt ${attempts} failed:`, error);
-                await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
-        }
 
-        setLoading(false);
-        showError('Failed to verify password after multiple attempts');
-        return false;
+            const data = await response.json();
+            
+            if (!data.success) {
+                throw new Error(data.message || 'Verification failed');
+            }
+
+            return data.isCorrect;
+        } catch (error) {
+            console.error('Password verification error:', error);
+            throw error;
+        }
     }
 
-    // Submit handlers with validation
+    // Submit handlers with updated validation
     elements.submitWritePassword.addEventListener('click', async function() {
         if (state.isLoading) return;
         
@@ -146,15 +138,21 @@ document.addEventListener('DOMContentLoaded', async function() {
             return;
         }
 
-        const isCorrect = await verifyPassword(password, 'write');
-        if (isCorrect) {
-            hideError(elements.writePasswordError);
-            setView('write');
-            if (!initSignaturePad()) {
-                setView('home');
+        try {
+            setLoading(true);
+            const isCorrect = await verifyPassword(password, 'write');
+            
+            if (isCorrect) {
+                hideError(elements.writePasswordError);
+                setView('write');
+                if (!initSignaturePad()) {
+                    setView('home');
+                }
             }
-        } else {
-            showError('Invalid password', elements.writePasswordError);
+        } catch (error) {
+            showError('Invalid password or verification failed', elements.writePasswordError);
+        } finally {
+            setLoading(false);
         }
     });
 
@@ -167,13 +165,19 @@ document.addEventListener('DOMContentLoaded', async function() {
             return;
         }
 
-        const isCorrect = await verifyPassword(password, 'read');
-        if (isCorrect) {
-            hideError(elements.readPasswordError);
-            setView('read');
-            await loadEntries(password);
-        } else {
-            showError('Invalid password', elements.readPasswordError);
+        try {
+            setLoading(true);
+            const isCorrect = await verifyPassword(password, 'read');
+            
+            if (isCorrect) {
+                hideError(elements.readPasswordError);
+                setView('read');
+                await loadEntries(password);
+            }
+        } catch (error) {
+            showError('Invalid password or verification failed', elements.readPasswordError);
+        } finally {
+            setLoading(false);
         }
     });
 
