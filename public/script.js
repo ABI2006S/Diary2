@@ -202,8 +202,16 @@ document.addEventListener('DOMContentLoaded', async function() {
                 date: new Date().toISOString()
             };
 
-            const success = await saveEntry(elements.writePasswordInput.value, entry);
-            if (success) {
+            const response = await fetch('/api/entries', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: elements.writePasswordInput.value, entry })
+            });
+
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+
+            if (data.success) {
                 resetForm();
                 showError('Autograph saved successfully!');
                 setView('home');
