@@ -88,7 +88,7 @@ const EntrySchema = new mongoose.Schema({
   signature: { 
     type: String, 
     required: true,
-    maxlength: 100
+    maxlength: 100000
   },
   date: { 
     type: String, 
