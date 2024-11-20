@@ -324,3 +324,22 @@ document.addEventListener('DOMContentLoaded', async function() {
         }, 250);
     });
 });
+
+// New verifyPassword function appended
+async function verifyPassword(password, type) {
+  try {
+    const response = await fetch('/api/verify-password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ password, type }),
+    });
+
+    const data = await response.json();
+    return data.success;
+  } catch (error) {
+    console.error('Error verifying password:', error);
+    return false;
+  }
+}
