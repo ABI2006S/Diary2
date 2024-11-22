@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/index.js",
+      "src": "server.js",
       "use": "@vercel/node"
     },
     {
@@ -13,7 +13,7 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "api/index.js"
+      "dest": "server.js"
     },
     {
       "src": "/(.*)",
@@ -21,6 +21,8 @@
     }
   ],
   "env": {
-    "NODE_ENV": "production"
+    "NODE_ENV": "production",
+    "WRITE_PASSWORD": "Treasured123",
+    "READ_PASSWORD": "ABIN1JOHN"
   }
 }
