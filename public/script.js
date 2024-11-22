@@ -1,12 +1,13 @@
-document.addEventListener('DOMContentLoaded', async function () {
-    const state = {
-        isLoading: false,
-        currentView: 'home',
-        retryAttempts: 0,
-        maxRetries: 3,
-        timeoutDuration: 10000,
-    };
+const state = {
+    isLoading: false,
+    currentView: 'home',
+    retryAttempts: 0,
+    maxRetries: 3,
+    timeoutDuration: 10000, // 10 seconds
+    debounceTimeout: null
+};
 
+document.addEventListener('DOMContentLoaded', async function () {
     const elements = {
         writeButton: document.getElementById('write-button'),
         readButton: document.getElementById('read-button'),
@@ -28,7 +29,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         entriesContainer: document.getElementById('entries-container'),
         loadingSpinner: document.getElementById('loading-spinner'),
         entriesLoading: document.getElementById('entries-loading'),
-        entriesError: document.getElementById('entries-error'),
+        entriesError: document.getElementById('entries-error')
     };
 
     let signaturePad;
@@ -52,7 +53,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             signaturePad = new SignaturePad(canvas, {
                 minWidth: 1,
                 maxWidth: 2.5,
-                throttle: 16,
+                throttle: 16 // 60fps
             });
 
             return true;
@@ -98,7 +99,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ password, type }),
-                    signal: controller.signal,
+                    signal: controller.signal
                 });
 
                 clearTimeout(timeoutId);
@@ -126,6 +127,56 @@ document.addEventListener('DOMContentLoaded', async function () {
         showError('Failed to verify password after multiple attempts');
         return false;
     }
+
+    elements.writeButton.addEventListener('click', () => {
+        if (state.isLoading) return;
+        setView('writePassword');
+    });
+
+    elements.readButton.addEventListener('click', () => {
+        if (state.isLoading) return;
+        setView('readPassword');
+    });
+
+    elements.submitWritePassword.addEventListener('click', async function () {
+        if (state.isLoading) return;
+
+        const password = elements.writePasswordInput.value.trim();
+        if (!password) {
+            showError('Please enter a password', elements.writePasswordError);
+            return;
+        }
+
+        const isCorrect = await verifyPassword(password, 'write');
+        if (isCorrect) {
+            hideError(elements.writePasswordError);
+            setView('write');
+            if (!initSignaturePad()) {
+                setView('home');
+            }
+        } else {
+            showError('Invalid password', elements.writePasswordError);
+        }
+    });
+
+    elements.submitReadPassword.addEventListener('click', async function () {
+        if (state.isLoading) return;
+
+        const password = elements.readPasswordInput.value.trim();
+        if (!password) {
+            showError('Please enter a password', elements.readPasswordError);
+            return;
+        }
+
+        const isCorrect = await verifyPassword(password, 'read');
+        if (isCorrect) {
+            hideError(elements.readPasswordError);
+            setView('read');
+            await loadEntries(password);
+        } else {
+            showError('Invalid password', elements.readPasswordError);
+        }
+    });
 
     async function loadEntries(password) {
         elements.entriesLoading.classList.remove('hidden');
@@ -170,13 +221,60 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
     }
 
+    elements.entryForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        if (state.isLoading) return;
+
+        const name = elements.nameInput.value.trim();
+        const message = elements.messageInput.value.trim();
+
+        if (!name || !message || signaturePad.isEmpty()) {
+            showError('Please fill in all fields and sign');
+            return;
+        }
+
+        setLoading(true);
+
+        try {
+            const signature = signaturePad.toDataURL('image/png', 0.5); // Compress signature
+            const entry = {
+                name,
+                message,
+                signature,
+                date: new Date().toISOString()
+            };
+
+            const success = await saveEntry(elements.writePasswordInput.value, entry);
+            if (success) {
+                resetForm();
+                showError('Autograph saved successfully!');
+                setView('home');
+            } else {
+                throw new Error('Failed to save entry');
+            }
+        } catch (error) {
+            console.error('Error saving entry:', error);
+            showError('Failed to save autograph. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    });
+
+    elements.clearSignatureButton.addEventListener('click', function () {
+        if (signaturePad && !signaturePad.isEmpty()) {
+            if (confirm('Are you sure you want to clear your signature?')) {
+                signaturePad.clear();
+            }
+        }
+    });
+
     function setView(view) {
         const views = {
             home: elements.passwordProtection,
             writePassword: elements.writePassword,
             readPassword: elements.readPassword,
             write: elements.autographForm,
-            read: elements.autographDisplay,
+            read: elements.autographDisplay
         };
 
         Object.values(views).forEach(element => element.classList.add('hidden'));
@@ -187,12 +285,15 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
     }
 
-    // Initialize the home view and signature pad resizing
+    function resetForm() {
+        elements.nameInput.value = '';
+        elements.messageInput.value = '';
+        if (signaturePad) signaturePad.clear();
+    }
+
     setView('home');
 
+    let resizeTimeout;
     window.addEventListener('resize', () => {
-        if (state.currentView === 'write' && signaturePad) {
-            initSignaturePad();
-        }
-    });
-});
+        clearTimeout(resizeTimeout);
+        resizeTimeout
