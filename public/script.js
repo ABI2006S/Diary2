@@ -1,66 +1,110 @@
+// Global error handler
+window.onerror = function(msg, url, lineNo, columnNo, error) {
+    console.error('Client error:', { msg, url, lineNo, columnNo, error });
+    showError('An error occurred. Please refresh the page.');
+    return false;
+};
+
+// State management
 let currentView = 'home';
-let signaturePad;
+let signaturePad = null;
+let isLoading = false;
+
+// Initialize application
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        // Check server health
+        const response = await fetch('/api/health');
+        if (!response.ok) throw new Error('Server health check failed');
+        
+        setView('home');
+        initializeEventListeners();
+    } catch (error) {
+        console.error('Initialization error:', error);
+        showError('Failed to initialize application. Please refresh the page.');
+    }
+});
+
+function showError(message) {
+    const errorElement = document.getElementById('error-message');
+    errorElement.textContent = message;
+    errorElement.classList.remove('hidden');
+    setTimeout(() => {
+        errorElement.classList.add('hidden');
+    }, 5000);
+}
+
+function setLoading(loading) {
+    isLoading = loading;
+    const spinner = document.getElementById('loading-spinner');
+    if (loading) {
+        spinner.classList.remove('hidden');
+    } else {
+        spinner.classList.add('hidden');
+    }
+}
 
 function setView(view) {
-    // Hide all views
-    ['home', 'password', 'write', 'read'].forEach(v => {
-        document.getElementById(`${v}-view`).style.display = 'none';
+    const views = ['home', 'password', 'write', 'read'];
+    views.forEach(v => {
+        const element = document.getElementById(`${v}-view`);
+        if (element) {
+            element.classList.add('hidden');
+        }
     });
 
-    // Show requested view
-    document.getElementById(`${view}-view`).style.display = 'block';
-    currentView = view;
+    const currentElement = document.getElementById(`${view}-view`);
+    if (currentElement) {
+        currentElement.classList.remove('hidden');
+        currentView = view;
 
-    // Update password view title if needed
-    if (view === 'writePassword') {
-        document.getElementById('password-title').textContent = 'Enter Write Password 🙃';
-    } else if (view === 'readPassword') {
-        document.getElementById('password-title').textContent = 'Enter Read Password 😉';
+        if (view === 'write') {
+            initSignaturePad();
+        }
     }
+}
 
-    // Initialize signature pad if needed
-    if (view === 'write' && !signaturePad) {
-        initSignaturePad();
-    }
+function initializeEventListeners() {
+    document.getElementById('write-button').addEventListener('click', () => setView('writePassword'));
+    document.getElementById('read-button').addEventListener('click', () => setView('readPassword'));
+    document.getElementById('submit-write-password').addEventListener('click', () => handlePasswordSubmit('write'));
+    document.getElementById('submit-read-password').addEventListener('click', () => handlePasswordSubmit('read'));
+    document.getElementById('entry-form').addEventListener('submit', handleEntrySubmit);
+    document.getElementById('clear-signature').addEventListener('click', clearSignature);
 }
 
 function initSignaturePad() {
     try {
         const canvas = document.getElementById('signature-pad');
         if (!canvas) return;
-        
-        // Set canvas size
-        const container = canvas.parentElement;
-        canvas.width = container.offsetWidth;
-        canvas.height = 200; // Fixed height
-        
+
+        const parent = canvas.parentElement;
+        canvas.width = parent.offsetWidth;
+        canvas.height = 200;
+
         signaturePad = new SignaturePad(canvas, {
             minWidth: 1,
-            maxWidth: 2.5,
-            throttle: 16
+            maxWidth: 2.5
         });
     } catch (error) {
         console.error('Failed to initialize signature pad:', error);
-        alert('Failed to initialize signature pad. Please refresh the page.');
+        showError('Failed to initialize signature pad');
     }
 }
 
-async function handlePasswordSubmit() {
-    const passwordInput = document.getElementById('password-input');
-    const errorElement = document.getElementById('password-error');
-    const loadingSpinner = document.getElementById('loading-spinner');
-    
+async function handlePasswordSubmit(type) {
+    if (isLoading) return;
+
+    const passwordInput = document.getElementById(`${type}-password-input`);
     const password = passwordInput.value.trim();
-    const type = currentView === 'writePassword' ? 'write' : 'read';
 
     if (!password) {
-        showError('Please enter a password', errorElement);
+        showError('Please enter a password');
         return;
     }
 
     try {
-        loadingSpinner.classList.remove('hidden');
-        
+        setLoading(true);
         const response = await fetch('/api/verify-password', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -68,61 +112,41 @@ async function handlePasswordSubmit() {
         });
 
         const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.message || 'Failed to verify password');
-        }
-
-        if (data.isCorrect) {
+        
+        if (data.success && data.isCorrect) {
             passwordInput.value = '';
-            errorElement.classList.add('hidden');
             setView(type);
-            
             if (type === 'read') {
-                await displayEntries(password);
+                await loadEntries(password);
             }
         } else {
-            showError('Incorrect password', errorElement);
+            showError('Invalid password');
         }
     } catch (error) {
-        console.error('Error:', error);
-        showError(error.message || 'An error occurred. Please try again.', errorElement);
+        console.error('Password verification error:', error);
+        showError('Failed to verify password');
     } finally {
-        loadingSpinner.classList.add('hidden');
+        setLoading(false);
     }
 }
 
-function showError(message, element) {
-    if (element) {
-        element.textContent = message;
-        element.classList.remove('hidden');
-        element.classList.add('error-shake');
-        setTimeout(() => element.classList.remove('error-shake'), 500);
-    } else {
-        alert(message);
-    }
-}
+async function handleEntrySubmit(event) {
+    event.preventDefault();
+    if (isLoading) return;
 
-async function handleEntrySubmit() {
     const nameInput = document.getElementById('name-input');
     const messageInput = document.getElementById('message-input');
-    const errorElement = document.getElementById('write-error');
-    const loadingSpinner = document.getElementById('loading-spinner');
 
-    const name = nameInput.value.trim();
-    const message = messageInput.value.trim();
-
-    if (!name || !message || (signaturePad && signaturePad.isEmpty())) {
-        showError('Please fill all fields and sign', errorElement);
+    if (!nameInput.value.trim() || !messageInput.value.trim() || !signaturePad || signaturePad.isEmpty()) {
+        showError('Please fill all fields and sign');
         return;
     }
 
     try {
-        loadingSpinner.classList.remove('hidden');
-
-        const newEntry = {
-            name,
-            message,
+        setLoading(true);
+        const entry = {
+            name: nameInput.value.trim(),
+            message: messageInput.value.trim(),
             signature: signaturePad.toDataURL(),
             date: new Date().toISOString()
         };
@@ -131,85 +155,68 @@ async function handleEntrySubmit() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                password: document.getElementById('password-input').value,
-                entry: newEntry
+                password: document.getElementById('write-password-input').value,
+                entry
             })
         });
 
         const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.message || 'Failed to save entry');
-        }
-
+        
         if (data.success) {
             nameInput.value = '';
             messageInput.value = '';
             signaturePad.clear();
             setView('home');
-            showError('Autograph saved successfully!');
+            showError('Entry saved successfully!');
+        } else {
+            throw new Error(data.message || 'Failed to save entry');
         }
     } catch (error) {
-        console.error('Error:', error);
-        showError(error.message || 'Failed to save entry. Please try again.', errorElement);
+        console.error('Entry submission error:', error);
+        showError('Failed to save entry');
     } finally {
-        loadingSpinner.classList.add('hidden');
+        setLoading(false);
     }
 }
 
 function clearSignature() {
     if (signaturePad && !signaturePad.isEmpty()) {
-        if (confirm('Are you sure you want to clear your signature?')) {
-            signaturePad.clear();
-        }
+        signaturePad.clear();
     }
 }
 
-async function displayEntries(password) {
-    const entriesContainer = document.getElementById('entries-container');
-    const loadingElement = document.getElementById('entries-loading');
-    const errorElement = document.getElementById('entries-error');
+async function loadEntries(password) {
+    if (isLoading) return;
 
     try {
-        loadingElement.classList.remove('hidden');
-        errorElement.classList.add('hidden');
-        entriesContainer.innerHTML = '';
-
+        setLoading(true);
         const response = await fetch(`/api/entries?password=${encodeURIComponent(password)}`);
-        
-        if (!response.ok) {
-            throw new Error('Failed to load entries');
-        }
-
         const entries = await response.json();
 
+        const container = document.getElementById('entries-container');
+        container.innerHTML = '';
+
         if (entries.length === 0) {
-            entriesContainer.innerHTML = '<p class="text-center text-gray-500">No entries yet</p>';
+            container.innerHTML = '<p class="no-entries">No entries found</p>';
             return;
         }
 
-        const fragment = document.createDocumentFragment();
         entries.forEach(entry => {
-            const entryDiv = document.createElement('div');
-            entryDiv.className = 'entry bg-white p-4 rounded-lg shadow-md mb-4';
-            entryDiv.innerHTML = `
-                <h3 class="text-xl font-bold">${escapeHtml(entry.name)}</h3>
-                <p class="mt-2">${escapeHtml(entry.message)}</p>
-                <img src="${entry.signature}" alt="Signature" class="mt-2 max-w-full h-auto">
-                <p class="text-sm text-gray-500 mt-2">
-                    Signed on: ${new Date(entry.date).toLocaleString()}
-                </p>
+            const entryElement = document.createElement('div');
+            entryElement.className = 'entry';
+            entryElement.innerHTML = `
+                <h3>${escapeHtml(entry.name)}</h3>
+                <p>${escapeHtml(entry.message)}</p>
+                <img src="${entry.signature}" alt="Signature" class="signature">
+                <p class="date">Signed on: ${new Date(entry.date).toLocaleString()}</p>
             `;
-            fragment.appendChild(entryDiv);
+            container.appendChild(entryElement);
         });
-
-        entriesContainer.appendChild(fragment);
     } catch (error) {
-        console.error('Error:', error);
-        errorElement.textContent = error.message;
-        errorElement.classList.remove('hidden');
+        console.error('Error loading entries:', error);
+        showError('Failed to load entries');
     } finally {
-        loadingElement.classList.add('hidden');
+        setLoading(false);
     }
 }
 
@@ -222,18 +229,13 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;");
 }
 
-// Initialize on page load
-window.addEventListener('DOMContentLoaded', () => {
-    setView('home');
-    
-    // Handle window resize for signature pad
-    let resizeTimeout;
-    window.addEventListener('resize', () => {
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => {
-            if (currentView === 'write') {
-                initSignaturePad();
-            }
-        }, 250);
-    });
+// Handle window resize for signature pad
+let resizeTimeout;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+        if (currentView === 'write') {
+            initSignaturePad();
+        }
+    }, 250);
 });
